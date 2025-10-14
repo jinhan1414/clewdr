@@ -1,10 +1,10 @@
-FROM node:lts-slim AS frontend-builder
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/node:lts-slim AS frontend-builder
 WORKDIR /build/frontend
 RUN npm install -g pnpm
 COPY frontend/ .
 RUN pnpm install && pnpm run build
 
-FROM docker.io/lukemathwalker/cargo-chef:latest-rust-trixie AS chef
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/lukemathwalker/cargo-chef:latest-rust-1.86 AS chef
 WORKDIR /build
 
 FROM chef AS planner
