@@ -4,7 +4,7 @@ RUN npm install -g pnpm
 COPY frontend/ .
 RUN pnpm install && pnpm run build
 
-FROM docker.1ms.run/lukemathwalker/cargo-chef:latest-rust-trixie AS chef
+FROM docker-0.unsee.tech/lukemathwalker/cargo-chef:latest-rust-trixie AS chef
 WORKDIR /build
 
 FROM chef AS planner
