@@ -125,8 +125,16 @@ impl CookieActor {
         
         // If filter_by is specified, try to find or insert the cookie
         if let Some(ref token) = filter_by {
-            // First, try to find existing cookie by token
-            if let Some(cookie) = state.valid.iter().find(|c| c.cookie.raw() == token) {
+            // First, try to find existing cookie by comparing full cookie strings
+            let token_cookie_str = if token.starts_with("sk-ant-sid01-") {
+                token.to_string()
+            } else {
+                format!("sk-ant-sid01-{}", token)
+            };
+            
+            if let Some(cookie) = state.valid.iter().find(|c| {
+                format!("sk-ant-sid01-{}", c.cookie.raw()) == token_cookie_str
+            }) {
                 info!("Found existing cookie for token");
                 return Ok(cookie.clone());
             }
@@ -136,11 +144,16 @@ impl CookieActor {
             match CookieStatus::new(token, None) {
                 Ok(new_cookie) => {
                     // Check if cookie already exists before inserting
-                    if !state.valid.iter().any(|c| c.cookie.raw() == token) {
+                    let new_cookie_str = format!("sk-ant-sid01-{}", new_cookie.cookie.raw());
+                    if !state.valid.iter().any(|c| {
+                        format!("sk-ant-sid01-{}", c.cookie.raw()) == new_cookie_str
+                    }) {
                         state.valid.push_back(new_cookie.clone());
                         Self::save(state);
                         Self::log(state);
                         info!("Successfully added new cookie to pool");
+                    } else {
+                        info!("Cookie already exists in pool, using existing one");
                     }
                     return Ok(new_cookie);
                 }

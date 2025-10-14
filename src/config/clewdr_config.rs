@@ -352,7 +352,19 @@ impl ClewdrConfig {
         }
     }
     pub fn user_auth(&self, key: &str) -> bool {
-        key == self.password
+        // Accept either the configured password or a valid Claude sessionKey
+        if key == self.password {
+            return true;
+        }
+        
+        // Check if it's a valid sessionKey format: sk-ant-sid01-{86 chars}-{6 chars}AA
+        use regex::Regex;
+        use std::sync::LazyLock;
+        static SESSION_KEY_RE: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"^sk-ant-sid01-[0-9A-Za-z_-]{86}-[0-9A-Za-z_-]{6}AA$").unwrap()
+        });
+        
+        SESSION_KEY_RE.is_match(key)
     }
 
     pub fn admin_auth(&self, key: &str) -> bool {
