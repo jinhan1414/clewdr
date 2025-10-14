@@ -104,6 +104,28 @@ impl ClaudeCodeState {
         Ok(res)
     }
 
+    /// Requests a cookie from the cookie manager using a specific token
+    /// This allows using a user's authentication token as the sessionKey
+    /// Updates the internal state with the new cookie and proxy configuration
+    pub async fn request_cookie_by_token(&mut self, token: String) -> Result<CookieStatus, ClewdrError> {
+        let res = self.cookie_actor_handle.request_by_token(token).await?;
+        self.cookie = Some(res.to_owned());
+        self.cookie_header_value = HeaderValue::from_str(res.cookie.to_string().as_str())?;
+        // Always pull latest proxy/endpoint before building the client
+        self.proxy = CLEWDR_CONFIG.load().wreq_proxy.to_owned();
+        self.endpoint = CLEWDR_CONFIG.load().endpoint();
+        let mut client = ClientBuilder::new()
+            .cookie_store(true)
+            .emulation(Emulation::Chrome136);
+        if let Some(ref proxy) = self.proxy {
+            client = client.proxy(proxy.to_owned());
+        }
+        self.client = client.build().context(WreqSnafu {
+            msg: "Failed to build client with new cookie",
+        })?;
+        Ok(res)
+    }
+
     pub fn check_token(&self) -> TokenStatus {
         let Some(CookieStatus {
             token: Some(token_info),

@@ -11,21 +11,29 @@ use crate::{
 
 pub async fn api_claude_code(
     State(provider): State<Arc<ClaudeCodeProvider>>,
-    ClaudeCodePreprocess(params, context): ClaudeCodePreprocess,
+    Extension(token): Extension<crate::middleware::auth::BearerToken>,
+    mut preprocess: ClaudeCodePreprocess,
 ) -> Result<(Extension<ClaudeContext>, Response), ClewdrError> {
+    // Set the token in the context for session-based access
+    preprocess.1.set_token(token.0);
+
     let ClaudeProviderResponse { context, response } = provider
-        .invoke(ClaudeInvocation::messages(params, context.clone()))
+        .invoke(ClaudeInvocation::messages(preprocess.0, preprocess.1))
         .await?;
     Ok((Extension(context), response))
 }
 
 pub async fn api_claude_code_count_tokens(
     State(provider): State<Arc<ClaudeCodeProvider>>,
-    ClaudeCodePreprocess(mut params, context): ClaudeCodePreprocess,
+    Extension(token): Extension<crate::middleware::auth::BearerToken>,
+    mut preprocess: ClaudeCodePreprocess,
 ) -> Result<Response, ClewdrError> {
-    params.stream = Some(false);
+    // Set the token in the context for session-based access
+    preprocess.1.set_token(token.0);
+
+    preprocess.0.stream = Some(false);
     let ClaudeProviderResponse { response, .. } = provider
-        .invoke(ClaudeInvocation::count_tokens(params, context))
+        .invoke(ClaudeInvocation::count_tokens(preprocess.0, preprocess.1))
         .await?;
     Ok(response)
 }

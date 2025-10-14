@@ -31,6 +31,22 @@ pub enum ClaudeContext {
 }
 
 impl ClaudeContext {
+    pub fn token(&self) -> Option<&str> {
+        match self {
+            ClaudeContext::Web(ctx) => ctx.token.as_deref(),
+            ClaudeContext::Code(ctx) => ctx.token.as_deref(),
+        }
+    }
+
+    pub fn set_token(&mut self, token: String) {
+        match self {
+            ClaudeContext::Web(ctx) => ctx.token = Some(token),
+            ClaudeContext::Code(ctx) => ctx.token = Some(token),
+        }
+    }
+}
+
+impl ClaudeContext {
     pub fn is_stream(&self) -> bool {
         match self {
             ClaudeContext::Web(ctx) => ctx.stream,

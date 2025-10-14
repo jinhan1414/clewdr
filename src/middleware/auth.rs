@@ -5,6 +5,10 @@ use tracing::warn;
 use super::gemini::GeminiArgs;
 use crate::{config::CLEWDR_CONFIG, error::ClewdrError};
 
+/// Struct to hold the bearer token for type-safe extensions
+#[derive(Clone, Debug)]
+pub struct BearerToken(pub String);
+
 /// Extractor for the X-API-Key header used in Claude API compatibility
 ///
 /// This struct extracts the API key from the "x-api-key" header and makes it
@@ -118,6 +122,8 @@ where
             warn!("Invalid Bearer key: {}", key);
             return Err(ClewdrError::InvalidAuth);
         }
+        // Insert the token into request extensions for the provider to use
+        parts.extensions.insert(BearerToken(key));
         Ok(Self)
     }
 }
@@ -141,6 +147,8 @@ where
             warn!("Invalid x-api-key: {}", key);
             return Err(ClewdrError::InvalidAuth);
         }
+        // Insert the token into request extensions for the provider to use
+        parts.extensions.insert(BearerToken(key));
         Ok(Self)
     }
 }

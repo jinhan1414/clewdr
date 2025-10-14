@@ -54,6 +54,8 @@ pub struct ClaudeWebContext {
     pub(super) stop_sequences: Vec<String>,
     /// User information about input and output tokens
     pub(super) usage: Usage,
+    /// Authentication token for session-based access
+    pub(super) token: Option<String>,
 }
 
 /// Predefined test message in Claude format for connection testing
@@ -175,6 +177,7 @@ where
                 input_tokens,
                 output_tokens: 0, // Placeholder for output token count
             },
+            token: None, // Will be set by auth middleware
         };
 
         Ok(Self(body, ClaudeContext::Web(info)))
@@ -191,6 +194,8 @@ pub struct ClaudeCodeContext {
     pub(super) system_prompt_hash: Option<u64>,
     // Usage information for the request
     pub(super) usage: Usage,
+    /// Authentication token for session-based access
+    pub(super) token: Option<String>,
 }
 
 pub struct ClaudeCodePreprocess(pub CreateMessageParams, pub ClaudeContext);
@@ -278,6 +283,7 @@ where
                 input_tokens,
                 output_tokens: 0, // Placeholder for output token count
             },
+            token: None, // Will be set by auth middleware
         };
 
         Ok(Self(body, ClaudeContext::Code(info)))

@@ -31,7 +31,7 @@ enum CookieActorMessage {
     /// Check for timed out Cookies
     CheckReset,
     /// Request to get a Cookie
-    Request(Option<u64>, RpcReplyPort<Result<CookieStatus, ClewdrError>>),
+    Request(Option<u64>, Option<String>, RpcReplyPort<Result<CookieStatus, ClewdrError>>),
     /// Get all Cookie status information
     GetStatus(RpcReplyPort<CookieStatusInfo>),
     /// Delete a Cookie
@@ -119,8 +119,39 @@ impl CookieActor {
         &self,
         state: &mut CookieActorState,
         hash: Option<u64>,
+        filter_by: Option<String>,
     ) -> Result<CookieStatus, ClewdrError> {
         Self::reset(state, self.storage);
+        
+        // If filter_by is specified, try to find or insert the cookie
+        if let Some(ref token) = filter_by {
+            // First, try to find existing cookie by token
+            if let Some(cookie) = state.valid.iter().find(|c| c.cookie.raw() == token) {
+                info!("Found existing cookie for token");
+                return Ok(cookie.clone());
+            }
+            
+            // If not found, try to insert new cookie
+            info!("Cookie not found in pool, attempting to add new cookie from token");
+            match CookieStatus::new(token, None) {
+                Ok(new_cookie) => {
+                    // Check if cookie already exists before inserting
+                    if !state.valid.iter().any(|c| c.cookie.raw() == token) {
+                        state.valid.push_back(new_cookie.clone());
+                        Self::save(state);
+                        Self::log(state);
+                        info!("Successfully added new cookie to pool");
+                    }
+                    return Ok(new_cookie);
+                }
+                Err(e) => {
+                    warn!("Failed to create cookie from token: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+        
+        // Original logic for hash-based lookup
         if let Some(hash) = hash
             && let Some(cookie) = state.moka.get(&hash)
             && let Some(cookie) = state.valid.iter().find(|&c| c == &cookie)
@@ -129,6 +160,8 @@ impl CookieActor {
             state.moka.insert(hash, cookie.clone());
             return Ok(cookie.clone());
         }
+        
+        // Original round-robin logic
         let cookie = state
             .valid
             .pop_front()
@@ -337,8 +370,8 @@ impl Actor for CookieActor {
             CookieActorMessage::CheckReset => {
                 Self::reset(state, self.storage);
             }
-            CookieActorMessage::Request(cache_hash, reply_port) => {
-                let result = self.dispatch(state, cache_hash);
+            CookieActorMessage::Request(cache_hash, filter_by, reply_port) => {
+                let result = self.dispatch(state, cache_hash, filter_by);
                 reply_port.send(result)?;
             }
             CookieActorMessage::GetStatus(reply_port) => {
@@ -415,10 +448,20 @@ impl CookieActorHandle {
 
     /// Request a cookie from the cookie actor
     pub async fn request(&self, cache_hash: Option<u64>) -> Result<CookieStatus, ClewdrError> {
-        ractor::call!(self.actor_ref, CookieActorMessage::Request, cache_hash).map_err(|e| {
+        ractor::call!(self.actor_ref, CookieActorMessage::Request, cache_hash, None).map_err(|e| {
             ClewdrError::RactorError {
                 loc: Location::generate(),
                 msg: format!("Failed to communicate with CookieActor for request operation: {e}"),
+            }
+        })?
+    }
+    
+    /// Request a cookie by token from the cookie actor
+    pub async fn request_by_token(&self, token: String) -> Result<CookieStatus, ClewdrError> {
+        ractor::call!(self.actor_ref, CookieActorMessage::Request, None, Some(token)).map_err(|e| {
+            ClewdrError::RactorError {
+                loc: Location::generate(),
+                msg: format!("Failed to communicate with CookieActor for request_by_token operation: {e}"),
             }
         })?
     }

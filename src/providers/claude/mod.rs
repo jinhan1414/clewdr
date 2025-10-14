@@ -133,7 +133,15 @@ impl LLMProvider for ClaudeWebProvider {
         );
         print_out_json(&params, "claude_web_client_req.json");
         let stopwatch = Instant::now();
-        let response = state.try_chat(params).await?;
+
+        // Use token-based cookie request if token is available
+        let response = if let Some(token) = context.token() {
+            state.request_cookie_by_token(token.to_string()).await?;
+            state.try_chat(params).await?
+        } else {
+            state.try_chat(params).await?
+        };
+
         let elapsed = stopwatch.elapsed();
         info!(
             "[FIN] elapsed: {}s",
@@ -185,7 +193,15 @@ impl LLMProvider for ClaudeCodeProvider {
                 );
                 print_out_json(&params, "claude_code_client_req.json");
                 let stopwatch = Instant::now();
-                let response = state.try_chat(params).await?;
+
+                // Use token-based cookie request if token is available
+                let response = if let Some(token) = context.token() {
+                    state.request_cookie_by_token(token.to_string()).await?;
+                    state.try_chat(params).await?
+                } else {
+                    state.try_chat(params).await?
+                };
+
                 let elapsed = stopwatch.elapsed();
                 info!(
                     "[FIN] elapsed: {}s",

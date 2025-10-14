@@ -372,6 +372,11 @@ impl Default for ClewdrCookie {
 }
 
 impl ClewdrCookie {
+    /// Returns the raw cookie value without the `sessionKey=sk-ant-sid01-` prefix
+    pub fn raw(&self) -> &str {
+        &self.inner
+    }
+
     pub fn ellipse(&self) -> String {
         let len = self.inner.len();
         if len > 10 {
