@@ -4,7 +4,7 @@ RUN npm install -g pnpm
 COPY frontend/ .
 RUN pnpm install && pnpm run build
 
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/lukemathwalker/cargo-chef:latest-rust-1.86 AS chef
+FROM docker.llkk.cc/lukemathwalker/cargo-chef:latest-rust-trixie AS chef AS chef
 WORKDIR /build
 
 FROM chef AS planner
