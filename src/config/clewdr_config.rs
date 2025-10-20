@@ -215,7 +215,7 @@ impl Default for ClewdrConfig {
             custom_a: None,
             wreq_proxy: None,
             preserve_chats: false,
-            web_search: false,
+            web_search: true,
             enable_web_count_tokens: false,
             skip_first_warning: false,
             skip_second_warning: false,
