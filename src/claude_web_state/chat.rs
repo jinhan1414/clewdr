@@ -36,44 +36,39 @@ impl ClaudeWebState {
         &mut self,
         p: CreateMessageParams,
     ) -> Result<axum::response::Response, ClewdrError> {
-        for i in 0..CLEWDR_CONFIG.load().max_retries + 1 {
-            if i > 0 {
-                info!("[RETRY] attempt: {}", i.to_string().green());
+        let mut state = self.to_owned();
+        let p = p.to_owned();
+
+        // The original implementation requested a cookie here, but since the provider
+        // now handles `request_cookie_by_token`, we can rely on the cookie already
+        // being present in the state. We just need to get a reference to it for logging.
+        let cookie = state.cookie.clone().ok_or(ClewdrError::InvalidAuth)?;
+
+        let web_res = async { state.bootstrap().await.and(state.send_chat(p).await) };
+        let transform_res = web_res
+            .and_then(async |r| self.transform_response(r).await)
+            .instrument(info_span!("claude_web", "cookie" = cookie.cookie.ellipse()));
+
+        match transform_res.await {
+            Ok(b) => {
+                if let Err(e) = state.clean_chat().await {
+                    warn!("Failed to clean chat: {}", e);
+                }
+                Ok(b)
             }
-            let mut state = self.to_owned();
-            let p = p.to_owned();
-
-            let cookie = state.request_cookie().await?;
-            // check if request is successful
-            let web_res = async { state.bootstrap().await.and(state.send_chat(p).await) };
-            let transform_res = web_res
-                .and_then(async |r| self.transform_response(r).await)
-                .instrument(info_span!("claude_web", "cookie" = cookie.cookie.ellipse()));
-
-            match transform_res.await {
-                Ok(b) => {
-                    if let Err(e) = state.clean_chat().await {
-                        warn!("Failed to clean chat: {}", e);
-                    }
-                    return Ok(b);
+            Err(e) => {
+                // delete chat after an error
+                if let Err(e) = state.clean_chat().await {
+                    warn!("Failed to clean chat: {}", e);
                 }
-                Err(e) => {
-                    // delete chat after an error
-                    if let Err(e) = state.clean_chat().await {
-                        warn!("Failed to clean chat: {}", e);
-                    }
-                    error!("{e}");
-                    // 429 error
-                    if let ClewdrError::InvalidCookie { reason } = e {
-                        state.return_cookie(Some(reason.to_owned())).await;
-                        continue;
-                    }
-                    return Err(e);
+                error!("{e}");
+                // Return the cookie if it's invalid
+                if let ClewdrError::InvalidCookie { reason } = &e {
+                    state.return_cookie(Some(reason.to_owned())).await;
                 }
+                Err(e)
             }
         }
-        error!("Max retries exceeded");
-        Err(ClewdrError::TooManyRetries)
     }
 
     /// Sends a message to the Claude API by creating a new conversation and processing the request

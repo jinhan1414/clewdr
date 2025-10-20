@@ -139,7 +139,7 @@ impl LLMProvider for ClaudeWebProvider {
             state.request_cookie_by_token(token.to_string()).await?;
             state.try_chat(params).await?
         } else {
-            state.try_chat(params).await?
+            return Err(ClewdrError::InvalidAuth);
         };
 
         let elapsed = stopwatch.elapsed();
@@ -199,7 +199,7 @@ impl LLMProvider for ClaudeCodeProvider {
                     state.request_cookie_by_token(token.to_string()).await?;
                     state.try_chat(params).await?
                 } else {
-                    state.try_chat(params).await?
+                    return Err(ClewdrError::InvalidAuth);
                 };
 
                 let elapsed = stopwatch.elapsed();

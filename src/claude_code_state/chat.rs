@@ -41,66 +41,57 @@ impl ClaudeCodeState {
         &mut self,
         p: CreateMessageParams,
     ) -> Result<axum::response::Response, ClewdrError> {
-        for i in 0..CLEWDR_CONFIG.load().max_retries + 1 {
-            if i > 0 {
-                info!("[RETRY] attempt: {}", i.to_string().green());
-            }
-            let mut state = self.to_owned();
-            let p = p.to_owned();
+        let mut state = self.to_owned();
+        let p = p.to_owned();
 
-            let cookie = state.request_cookie().await?;
-            let retry = async {
-                match state.check_token() {
-                    TokenStatus::None => {
-                        info!("No token found, requesting new token");
-                        let org = state.get_organization().await?;
-                        let code_res = state.exchange_code(&org).await?;
-                        state.exchange_token(code_res).await?;
-                        state.return_cookie(None).await;
-                    }
-                    TokenStatus::Expired => {
-                        info!("Token expired, refreshing token");
-                        state.refresh_token().await?;
-                        state.return_cookie(None).await;
-                    }
-                    TokenStatus::Valid => {
-                        info!("Token is valid, proceeding with request");
-                    }
+        let cookie = state.cookie.clone().ok_or(ClewdrError::InvalidAuth)?;
+
+        let chat_future = async {
+            match state.check_token() {
+                TokenStatus::None => {
+                    info!("No token found, requesting new token");
+                    let org = state.get_organization().await?;
+                    let code_res = state.exchange_code(&org).await?;
+                    state.exchange_token(code_res).await?;
+                    state.return_cookie(None).await;
                 }
-                let Some(access_token) = state.cookie.as_ref().and_then(|c| c.token.to_owned())
-                else {
-                    return Err(ClewdrError::UnexpectedNone {
-                        msg: "No access token found in cookie",
-                    });
-                };
-                state
-                    .send_chat(access_token.access_token.to_owned(), p)
-                    .await
+                TokenStatus::Expired => {
+                    info!("Token expired, refreshing token");
+                    state.refresh_token().await?;
+                    state.return_cookie(None).await;
+                }
+                TokenStatus::Valid => {
+                    info!("Token is valid, proceeding with request");
+                }
             }
-            .instrument(tracing::info_span!(
-                "claude_code",
-                "cookie" = cookie.cookie.ellipse()
-            ));
-            match retry.await {
-                Ok(res) => {
-                    return Ok(res);
+            let Some(access_token) = state.cookie.as_ref().and_then(|c| c.token.to_owned()) else {
+                return Err(ClewdrError::UnexpectedNone {
+                    msg: "No access token found in cookie",
+                });
+            };
+            state
+                .send_chat(access_token.access_token.to_owned(), p)
+                .await
+        }
+        .instrument(tracing::info_span!(
+            "claude_code",
+            "cookie" = cookie.cookie.ellipse()
+        ));
+
+        match chat_future.await {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                error!(
+                    "[{}] {}",
+                    state.cookie.as_ref().unwrap().cookie.ellipse().green(),
+                    e
+                );
+                if let ClewdrError::InvalidCookie { reason } = &e {
+                    state.return_cookie(Some(reason.to_owned())).await;
                 }
-                Err(e) => {
-                    error!(
-                        "[{}] {}",
-                        state.cookie.as_ref().unwrap().cookie.ellipse().green(),
-                        e
-                    );
-                    // 429 error
-                    if let ClewdrError::InvalidCookie { reason } = e {
-                        state.return_cookie(Some(reason.to_owned())).await;
-                        continue;
-                    }
-                    return Err(e);
-                }
+                Err(e)
             }
         }
-        Err(ClewdrError::TooManyRetries)
     }
 
     pub async fn send_chat(
@@ -223,73 +214,66 @@ impl ClaudeCodeState {
         p: CreateMessageParams,
         for_web: bool,
     ) -> Result<axum::response::Response, ClewdrError> {
-        for i in 0..CLEWDR_CONFIG.load().max_retries + 1 {
-            if i > 0 {
-                info!("[TOKENS][RETRY] attempt: {}", i.to_string().green());
-            }
-            let mut state = self.to_owned();
-            let p = p.to_owned();
+        let mut state = self.to_owned();
+        let p = p.to_owned();
 
-            let cookie = state.request_cookie().await?;
-            let web_attempt_allowed = CLEWDR_CONFIG.load().enable_web_count_tokens;
-            let cookie_disallows = matches!(cookie.count_tokens_allowed, Some(false));
-            if cookie_disallows || (for_web && !web_attempt_allowed) {
-                if cookie_disallows {
-                    state.persist_count_tokens_allowed(false).await;
-                }
-                return Ok(Self::local_count_tokens_response(&p));
+        let cookie = state.cookie.clone().ok_or(ClewdrError::InvalidAuth)?;
+        let web_attempt_allowed = CLEWDR_CONFIG.load().enable_web_count_tokens;
+        let cookie_disallows = matches!(cookie.count_tokens_allowed, Some(false));
+
+        if cookie_disallows || (for_web && !web_attempt_allowed) {
+            if cookie_disallows {
+                state.persist_count_tokens_allowed(false).await;
             }
-            let retry = async {
-                match state.check_token() {
-                    TokenStatus::None => {
-                        info!("No token found, requesting new token");
-                        let org = state.get_organization().await?;
-                        let code_res = state.exchange_code(&org).await?;
-                        state.exchange_token(code_res).await?;
-                        state.return_cookie(None).await;
-                    }
-                    TokenStatus::Expired => {
-                        info!("Token expired, refreshing token");
-                        state.refresh_token().await?;
-                        state.return_cookie(None).await;
-                    }
-                    TokenStatus::Valid => {
-                        info!("Token is valid, proceeding with count_tokens");
-                    }
+            return Ok(Self::local_count_tokens_response(&p));
+        }
+
+        let count_future = async {
+            match state.check_token() {
+                TokenStatus::None => {
+                    info!("No token found, requesting new token");
+                    let org = state.get_organization().await?;
+                    let code_res = state.exchange_code(&org).await?;
+                    state.exchange_token(code_res).await?;
+                    state.return_cookie(None).await;
                 }
-                let Some(access_token) = state.cookie.as_ref().and_then(|c| c.token.to_owned())
-                else {
-                    return Err(ClewdrError::UnexpectedNone {
-                        msg: "No access token found in cookie",
-                    });
-                };
-                state
-                    .perform_count_tokens(access_token.access_token.to_owned(), p, for_web)
-                    .await
+                TokenStatus::Expired => {
+                    info!("Token expired, refreshing token");
+                    state.refresh_token().await?;
+                    state.return_cookie(None).await;
+                }
+                TokenStatus::Valid => {
+                    info!("Token is valid, proceeding with count_tokens");
+                }
             }
-            .instrument(tracing::info_span!(
-                "claude_code_tokens",
-                "cookie" = cookie.cookie.ellipse()
-            ));
-            match retry.await {
-                Ok(res) => {
-                    return Ok(res);
+            let Some(access_token) = state.cookie.as_ref().and_then(|c| c.token.to_owned()) else {
+                return Err(ClewdrError::UnexpectedNone {
+                    msg: "No access token found in cookie",
+                });
+            };
+            state
+                .perform_count_tokens(access_token.access_token.to_owned(), p, for_web)
+                .await
+        }
+        .instrument(tracing::info_span!(
+            "claude_code_tokens",
+            "cookie" = cookie.cookie.ellipse()
+        ));
+
+        match count_future.await {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                error!(
+                    "[{}][TOKENS] {}",
+                    state.cookie.as_ref().unwrap().cookie.ellipse().green(),
+                    e
+                );
+                if let ClewdrError::InvalidCookie { reason } = &e {
+                    state.return_cookie(Some(reason.to_owned())).await;
                 }
-                Err(e) => {
-                    error!(
-                        "[{}][TOKENS] {}",
-                        state.cookie.as_ref().unwrap().cookie.ellipse().green(),
-                        e
-                    );
-                    if let ClewdrError::InvalidCookie { reason } = e {
-                        state.return_cookie(Some(reason.to_owned())).await;
-                        continue;
-                    }
-                    return Err(e);
-                }
+                Err(e)
             }
         }
-        Err(ClewdrError::TooManyRetries)
     }
 
     async fn perform_count_tokens(
